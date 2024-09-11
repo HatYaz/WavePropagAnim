@@ -1,0 +1,129 @@
+"""
+contact me : hatem.yazidi@gmail.com
+for any request !!
+cheers
+"""
+import numpy as np
+from scipy.integrate import odeint
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.animation as animation
+import os
+
+def ic(x, y):
+    return np.exp(-350 * ((x - 1/5)**2 + (y - 1/3)**2))
+
+def pde_system(U, t, X, Y, BC):
+    Nx, Ny = len(X), len(Y)
+    u = U[:Nx*Ny].reshape((Nx, Ny))
+    ut = U[Nx*Ny:].reshape((Nx, Ny))
+
+    dx = X[1] - X[0]
+    dy = Y[1] - Y[0]
+
+    uxx = np.zeros_like(u)
+    uyy = np.zeros_like(u)
+    uxx[1:-1, :] = (u[2:, :] - 2*u[1:-1, :] + u[:-2, :]) / dx**2
+    uyy[:, 1:-1] = (u[:, 2:] - 2*u[:, 1:-1] + u[:, :-2]) / dy**2
+
+    if BC == 'Dirichlet':
+        u[0, :] = ic(X[0], Y)
+        u[-1, :] = ic(X[-1], Y)
+        u[:, 0] = ic(X, Y[0])
+        u[:, -1] = ic(X, Y[-1])
+    elif BC == 'Neumann':
+        uxx[0, :] = uxx[1, :]
+        uxx[-1, :] = uxx[-2, :]
+        uyy[:, 0] = uyy[:, 1]
+        uyy[:, -1] = uyy[:, -2]
+
+    utt = uxx + uyy
+
+    return np.concatenate((ut.flatten(), utt.flatten()))
+
+# Set up grid
+Nx, Ny = 50, 50
+X = np.linspace(0, 1, Nx)
+Y = np.linspace(0, 1, Ny)
+T = np.linspace(0, 2, 100)
+
+# Initial conditions
+U0 = np.zeros(2 * Nx * Ny)
+X_grid, Y_grid = np.meshgrid(X, Y)
+U0[:Nx*Ny] = ic(X_grid, Y_grid).flatten()
+
+# Solve PDE for both boundary conditions
+sol_dir = odeint(pde_system, U0, T, args=(X, Y, 'Dirichlet'))
+sol_neu = odeint(pde_system, U0, T, args=(X, Y, 'Neumann'))
+
+def animate_solution(BC, save_path=None):
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+
+    if BC == 'Dirichlet':
+        sol = sol_dir
+    else:
+        sol = sol_neu
+
+    Z = sol[0, :Nx*Ny].reshape((Nx, Ny))
+    surf = ax.plot_surface(X_grid, Y_grid, Z, cmap='viridis')
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('U')
+
+    # Set axis limits to remain constant
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    z_min, z_max = Z.min(), Z.max()
+    ax.set_zlim(z_min, z_max)
+
+    title = ax.set_title(f'Wave Equation Solution (t=0.00, {BC} BC)')
+
+    fig.colorbar(surf)
+
+    def update(frame):
+        ax.cla()  # Clear the axis instead of collections
+        Z = sol[frame, :Nx*Ny].reshape((Nx, Ny))
+        ax.plot_surface(X_grid, Y_grid, Z, cmap='viridis')
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        ax.set_zlabel('U')
+        ax.set_xlim(0, 1)  # Keep X-axis limits constant
+        ax.set_ylim(0, 1)  # Keep Y-axis limits constant
+        ax.set_zlim(z_min, z_max)  # Keep Z-axis limits constant
+        title.set_text(f'Wave Equation Solution (t={T[frame]:.2f}, {BC} BC)')
+        return ax,
+
+    anim = FuncAnimation(fig, update, frames=len(T), interval=50, blit=False)
+
+    if save_path:
+        try:
+            # Try using PillowWriter
+            writer = animation.PillowWriter(fps=20)
+            anim.save(save_path, writer=writer)
+            print(f"Animation saved to {save_path}")
+        except Exception as e:
+            print(f"Error saving animation with PillowWriter: {e}")
+            try:
+                # Fallback to saving individual frames
+                base, ext = os.path.splitext(save_path)
+                frame_dir = f"{base}_frames"
+                os.makedirs(frame_dir, exist_ok=True)
+                for i in range(len(T)):
+                    update(i)
+                    plt.savefig(os.path.join(frame_dir, f'frame_{i:03d}.png'))
+                print(f"Individual frames saved in {frame_dir}")
+            except Exception as e:
+                print(f"Error saving individual frames: {e}")
+        finally:
+            plt.close(fig)
+    else:
+        plt.show()
+
+# Example usage:
+animate_solution('Dirichlet', save_path='wave_dirichlet.gif')
+animate_solution('Neumann', save_path='wave_neumann.gif')
+
+print("Script execution completed.")
